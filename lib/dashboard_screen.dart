@@ -3,13 +3,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'food_log_screen.dart';
 import 'ai_diet_screen.dart';
-import 'login_screen.dart';
-import 'profile_screen.dart';
+import 'screens/login_screen.dart';
+import 'screens/profile_screen.dart';
 import 'workout_tracker_screen.dart';
 import 'services/auth_service.dart';
 import 'services/user_service.dart';
 import 'package:intl/intl.dart';
 import 'saved_plans_screen.dart';
+import 'admin_screen.dart';
+import 'services/admin_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   @override
@@ -19,16 +21,26 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   final AuthService _authService = AuthService();
   final UserService _userService = UserService();
+  final AdminService _adminService = AdminService();
   final User? _currentUser = FirebaseAuth.instance.currentUser;
   
   bool _isLoading = true;
   bool _isWaterUpdating = false;
   Map<String, dynamic> _summaryData = {};
+  bool _isAdmin = false;
 
   @override
   void initState() {
     super.initState();
+    _checkAdmin();
     _loadDashboardData();
+  }
+
+  Future<void> _checkAdmin() async {
+    final isAdmin = await _adminService.isAdmin();
+    setState(() {
+      _isAdmin = isAdmin;
+    });
   }
 
   Future<void> _loadDashboardData() async {
@@ -81,45 +93,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text("Welcome, ${_summaryData['userName'] ?? '...'}!"),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.logout),
-            onPressed: () async {
-              await _authService.signOut();
-              if(mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => LoginScreen()),
-                  (Route<dynamic> route) => false,
-                );
-              }
-            },
-          ),
-        ],
-      ),
-      body: _isLoading 
-        ? Center(child: CircularProgressIndicator()) 
-        : Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.grey.shade200, Colors.grey.shade400],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: RefreshIndicator(
+      backgroundColor: Colors.grey.shade50,
+      body: _isLoading
+          ? Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
               onRefresh: _loadDashboardData,
-              child: ListView(
-                padding: EdgeInsets.all(16),
-                children: [
-                  _buildSummaryCard(),
-                  SizedBox(height: 20),
-                  _buildNavigationGrid(context),
-                ],
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    _buildWelcomeHeader(),
+                    SizedBox(height: 24),
+                    if (!_isAdmin)
+                      _buildSummaryCard(),
+                    if (!_isAdmin)
+                      SizedBox(height: 24),
+                    _buildNavigationGrid(context),
+                  ],
+                ),
               ),
             ),
+    );
+  }
+
+  Widget _buildWelcomeHeader() {
+    return AppBar(
+      title: Text("Welcome, ${_summaryData['userName'] ?? '...'}!"),
+      actions: [
+        IconButton(
+          icon: Icon(Icons.logout),
+          onPressed: () async {
+            await _authService.signOut();
+            if(mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (context) => LoginScreen()),
+                (Route<dynamic> route) => false,
+              );
+            }
+          },
         ),
+      ],
     );
   }
 
@@ -254,13 +267,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildNavigationGrid(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 16,
-      mainAxisSpacing: 16,
-      children: [
+    List<Widget> items;
+
+    if (_isAdmin) {
+      items = [
+        _buildDashboardItem(context, "Admin Dashboard", Icons.admin_panel_settings, Colors.red, () {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => AdminScreen()));
+        }),
+        _buildDashboardItem(context, "My Profile", Icons.person, Colors.purple, () {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen())).then((_) => _loadDashboardData());
+        }),
+      ];
+    } else {
+      items = [
         _buildDashboardItem(context, "Log Food", Icons.fastfood, Colors.orange, () {
           Navigator.push(context, MaterialPageRoute(builder: (_) => FoodLogScreen())).then((_) => _loadDashboardData());
         }),
@@ -276,7 +295,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _buildDashboardItem(context, "Saved Plans", Icons.save, Colors.green, () {
           Navigator.push(context, MaterialPageRoute(builder: (_) => SavedPlansScreen())).then((_) => _loadDashboardData());
         }),
-      ],
+      ];
+    }
+
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: NeverScrollableScrollPhysics(),
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      children: items,
     );
   }
 

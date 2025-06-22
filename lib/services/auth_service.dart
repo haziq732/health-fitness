@@ -24,6 +24,16 @@ class AuthService {
     }
   }
 
+  // Update user profile
+  Future<void> updateUserProfile(String name) async {
+    try {
+      await _auth.currentUser?.updateDisplayName(name);
+      await _auth.currentUser?.reload();
+    } catch (e) {
+      // Handle exceptions
+    }
+  }
+
   // Sign out
   Future<void> signOut() async {
     await _auth.signOut();

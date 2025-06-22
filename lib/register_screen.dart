@@ -1,44 +1,64 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'login_screen.dart';
-import 'custom_textfield.dart';
-import 'custom_button.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'services/auth_service.dart';
+import 'screens/login_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
+  const RegisterScreen({Key? key}) : super(key: key);
+
   @override
-  _RegisterScreenState createState() => _RegisterScreenState();
+  State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final TextEditingController emailController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
-  final AuthService _authService = AuthService();
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+
+  final _authService = AuthService();
   bool _isLoading = false;
+  bool _newsletter = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
 
   Future<void> _signUp() async {
-    if (emailController.text.isEmpty || passwordController.text.isEmpty) {
-      _showErrorSnackBar('Please fill in all fields');
+    if (_passwordController.text != _confirmPasswordController.text) {
+      _showErrorSnackBar("Passwords do not match.");
       return;
     }
-
-    if (passwordController.text.length < 6) {
-      _showErrorSnackBar('Password must be at least 6 characters long');
-      return;
+    
+    if (_nameController.text.isEmpty || _emailController.text.isEmpty) {
+        _showErrorSnackBar("Please fill in all fields.");
+        return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
 
     try {
-      await _authService.signUpWithEmailAndPassword(
-        emailController.text.trim(),
-        passwordController.text,
+      final userCredential = await _authService.signUpWithEmailAndPassword(
+        _emailController.text.trim(),
+        _passwordController.text,
       );
       
+      if (userCredential?.user != null) {
+        await _authService.updateUserProfile(_nameController.text.trim());
+      }
+
       if (mounted) {
         _showSuccessSnackBar('Account created successfully! Please login.');
-        Navigator.pop(context);
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+          (route) => false,
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -46,9 +66,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
     } finally {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -75,60 +93,167 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    Color foregroundColor = isDarkMode ? Colors.white : Colors.black;
+    Color mutedForegroundColor = isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600;
+    Color cardColor = isDarkMode ? const Color(0xFF2a2a2a) : Colors.white;
+    Color backgroundColor = isDarkMode ? const Color(0xFF1a1a1a) : const Color(0xFFf8fafc);
+
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.green.shade200, Colors.green.shade600],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: Center(
-          child: Card(
-            elevation: 8,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.person_add, size: 48, color: Colors.green.shade700),
-                  SizedBox(height: 10),
-                  Text("Register", style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.green.shade800)),
-                  SizedBox(height: 20),
-                  CustomTextField(
-                    controller: emailController,
-                    hintText: "Email",
-                    icon: Icons.email,
+      backgroundColor: backgroundColor,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(LucideIcons.heartPulse, size: 40, color: Colors.blue),
+                const SizedBox(height: 8),
+                Text(
+                  'Create new account',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: foregroundColor,
                   ),
-                  SizedBox(height: 10),
-                  CustomTextField(
-                    controller: passwordController,
-                    hintText: "Password",
-                    obscureText: true,
-                    icon: Icons.lock,
-                  ),
-                  SizedBox(height: 20),
-                  _isLoading
-                      ? CircularProgressIndicator(color: Colors.green.shade700)
-                      : CustomButton(
-                          label: "Register",
-                          onPressed: _signUp,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                Card(
+                  color: cardColor,
+                  elevation: 8,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildTextField(
+                          controller: _nameController,
+                          label: 'Name',
+                          hint: 'Your Name',
+                          isDarkMode: isDarkMode
                         ),
-                  SizedBox(height: 10),
-                  TextButton(
-                    onPressed: _isLoading ? null : () {
-                      Navigator.pop(context);
-                    },
-                    child: Text("Already have an account? Login", style: TextStyle(color: Colors.green.shade700)),
-                  )
-                ],
-              ),
+                        const SizedBox(height: 16),
+                        _buildTextField(
+                          controller: _emailController,
+                          label: 'Email',
+                          hint: 'test@gmail.com',
+                          keyboardType: TextInputType.emailAddress,
+                          isDarkMode: isDarkMode
+                        ),
+                        const SizedBox(height: 16),
+                        _buildTextField(
+                          controller: _passwordController,
+                          label: 'Password',
+                          hint: '••••••••',
+                          obscureText: true,
+                          isDarkMode: isDarkMode
+                        ),
+                        const SizedBox(height: 16),
+                        _buildTextField(
+                          controller: _confirmPasswordController,
+                          label: 'Confirm password',
+                          hint: '••••••••',
+                          obscureText: true,
+                          isDarkMode: isDarkMode
+                        ),
+                        
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _signUp,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Text('Create account'),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Center(
+                          child: Text.rich(
+                            TextSpan(
+                              style: TextStyle(fontSize: 12, color: mutedForegroundColor),
+                              children: [
+                                const TextSpan(text: 'By signing in, you agree to our '),
+                                _buildLinkSpan(context, 'Terms of use', () {}),
+                                const TextSpan(text: ' and '),
+                                _buildLinkSpan(context, 'Privacy policy', () {}),
+                              ],
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text.rich(
+                  TextSpan(
+                    style: TextStyle(color: mutedForegroundColor),
+                    children: [
+                      const TextSpan(text: 'Already have an account? '),
+                      _buildLinkSpan(context, 'Sign in', () {
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(builder: (context) => const LoginScreen()),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  TextSpan _buildLinkSpan(BuildContext context, String text, VoidCallback onTap) {
+    return TextSpan(
+      text: text,
+      style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline),
+      recognizer: TapGestureRecognizer()..onTap = onTap,
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    bool obscureText = false,
+    TextInputType keyboardType = TextInputType.text,
+    required bool isDarkMode
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: controller,
+          obscureText: obscureText,
+          keyboardType: keyboardType,
+          decoration: InputDecoration(
+            hintText: hint,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          ),
+        ),
+      ],
     );
   }
 }

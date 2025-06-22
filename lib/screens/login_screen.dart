@@ -1,6 +1,14 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../dashboard_screen.dart';
+import '../services/auth_service.dart';
+import '../services/user_service.dart';
+import '../services/admin_service.dart';
+import '../register_screen.dart';
+import '../widgets/welcome_dialog.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -22,6 +30,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   bool _isFormSubmitted = false;
   bool _isEmailFocused = false;
   bool _isPasswordFocused = false;
+  bool _isLoading = false;
   
   late AnimationController _particleController;
   late AnimationController _formAnimationController;
@@ -123,25 +132,79 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     });
   }
 
-  void _handleSubmit() {
-    setState(() {
-      _isFormSubmitted = true;
-    });
-
-    if (_emailController.text.isNotEmpty && 
-        _passwordController.text.isNotEmpty && 
-        _isEmailValid) {
-      // Simulate successful login
+  void _handleSubmit() async {
+    if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Login successful!'),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-        ),
+        const SnackBar(content: Text('Please fill in all fields')),
       );
+      return;
+    }
+    
+    setState(() {
+      _isLoading = true;
+    });
+    
+    try {
+      final authService = AuthService();
+      final userService = UserService();
+      final adminService = AdminService();
       
-      // Navigate to dashboard or next screen
-      Navigator.pushReplacementNamed(context, '/dashboard');
+      final userCredential = await authService.signInWithEmailAndPassword(
+        _emailController.text.trim(),
+        _passwordController.text,
+      );
+
+      if (userCredential?.user != null) {
+        await userService.checkAndCreateUserDocument(userCredential!.user!);
+        await userService.updateLastLogin(userCredential.user!.uid);
+
+        // Check if user is admin
+        final isAdmin = await adminService.isAdmin();
+
+        if (mounted) {
+          if (isAdmin) {
+            // Admin users go directly to dashboard without welcome dialog
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => DashboardScreen()),
+            );
+          } else {
+            // Regular users check if they're new and show welcome dialog if needed
+            final userData = await userService.getUserData(userCredential.user!.uid);
+            final bool isNewUser = userData?['isNewUser'] ?? false;
+
+            if (isNewUser) {
+              await showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) => WelcomeDialog(user: userCredential.user!),
+              );
+            }
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => DashboardScreen()),
+            );
+          }
+        }
+      } else {
+         if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Login failed. Please try again.')),
+            );
+         }
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message ?? 'An unknown error occurred.')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -293,22 +356,23 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                         width: double.infinity,
                         height: 50,
                         child: ElevatedButton(
-                          onPressed: _handleSubmit,
+                          onPressed: _isLoading ? null : _handleSubmit,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            elevation: 0,
                           ),
-                          child: const Text(
-                            'Sign In',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                          child: _isLoading 
+                            ? const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.white))
+                            : const Text(
+                                'Sign In',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -343,23 +407,32 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                       ),
                       const SizedBox(height: 24),
                       
-                      // Sign Up Prompt
+                      // Sign Up Link
                       Center(
-                        child: RichText(
-                          text: TextSpan(
-                            text: "Don't have an account? ",
-                            style: TextStyle(
-                              color: isDark ? Colors.grey[400] : Colors.grey[600],
-                            ),
-                            children: [
-                              TextSpan(
-                                text: 'Sign up',
-                                style: const TextStyle(
-                                  color: Colors.blue,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                        child: GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => RegisterScreen()),
+                            );
+                          },
+                          child: Text.rich(
+                            TextSpan(
+                              text: 'Don\'t have an account? ',
+                              style: TextStyle(
+                                color: isDark ? Colors.grey[400] : Colors.grey[600],
+                                fontSize: 14,
                               ),
-                            ],
+                              children: const [
+                                TextSpan(
+                                  text: 'Sign up',
+                                  style: TextStyle(
+                                    color: Colors.blue,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -407,17 +480,14 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 200),
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: isFocused || hasValue ? 12 : 16,
-                    color: isFocused 
-                      ? Colors.blue 
-                      : (isDark ? Colors.grey[400] : Colors.grey[600]),
-                    fontWeight: isFocused || hasValue ? FontWeight.w600 : FontWeight.normal,
-                  ),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isFocused 
+                    ? Colors.blue 
+                    : (isDark ? Colors.grey[400] : Colors.grey[600]),
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               TextField(
@@ -474,17 +544,14 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 200),
-                child: Text(
-                  'Password',
-                  style: TextStyle(
-                    fontSize: _isPasswordFocused || _passwordController.text.isNotEmpty ? 12 : 16,
-                    color: _isPasswordFocused 
-                      ? Colors.blue 
-                      : (isDark ? Colors.grey[400] : Colors.grey[600]),
-                    fontWeight: _isPasswordFocused || _passwordController.text.isNotEmpty ? FontWeight.w600 : FontWeight.normal,
-                  ),
+              Text(
+                'Password',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _isPasswordFocused 
+                    ? Colors.blue 
+                    : (isDark ? Colors.grey[400] : Colors.grey[600]),
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               Row(

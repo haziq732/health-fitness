@@ -1,6 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
+import 'dart:typed_data';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../image_viewer_screen.dart';
+import '../services/user_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({Key? key}) : super(key: key);
@@ -10,43 +14,152 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final TextEditingController _nameController = TextEditingController(text: "Margaret Villard");
-  final TextEditingController _roleController = TextEditingController(text: "Web Developer");
-  final TextEditingController _emailController = TextEditingController(text: "margaret@email.com");
-  final TextEditingController _portfolioController = TextEditingController(text: "https://margaret.com");
-  final TextEditingController _locationController = TextEditingController(text: "Bangalore, India");
-  final TextEditingController _companyController = TextEditingController(text: "OpenCV University");
-  final TextEditingController _githubController = TextEditingController();
-  final TextEditingController _linkedinController = TextEditingController();
-  final TextEditingController _aboutController = TextEditingController(
-    text: "I'm passionate about building user-centric applications that solve problems.",
-  );
+  final _formKey = GlobalKey<FormState>();
+  final _userService = UserService();
+  final _auth = FirebaseAuth.instance;
 
-  File? _selectedImage;
+  final _nameController = TextEditingController();
+  final _ageController = TextEditingController();
+  final _weightController = TextEditingController();
+  final _heightController = TextEditingController();
+  final _goalController = TextEditingController();
+  
+  bool _isLoading = true;
+  double _bmi = 0.0;
+  XFile? _selectedImageFile;
+  Uint8List? _imageBytes;
+  String? _profileImageUrl;
   final ImagePicker _picker = ImagePicker();
-  final int _maxLength = 180;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _roleController.dispose();
-    _emailController.dispose();
-    _portfolioController.dispose();
-    _locationController.dispose();
-    _companyController.dispose();
-    _githubController.dispose();
-    _linkedinController.dispose();
-    _aboutController.dispose();
+    _ageController.dispose();
+    _weightController.dispose();
+    _heightController.dispose();
+    _goalController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadUserData() async {
+    setState(() => _isLoading = true);
+    final user = _auth.currentUser;
+    if (user != null) {
+      try {
+        final userData = await _userService.getUserData(user.uid);
+        if (userData != null && userData['profile'] != null) {
+          final profile = userData['profile'];
+          _nameController.text = profile['name'] ?? '';
+          _ageController.text = (profile['age'] ?? 0).toString();
+          _weightController.text = (profile['weight'] ?? 0.0).toString();
+          _heightController.text = (profile['height'] ?? 0.0).toString();
+          _goalController.text = profile['fitnessGoal'] ?? '';
+          if (mounted) {
+            setState(() {
+              _profileImageUrl = profile['profileImageUrl'];
+              if (_profileImageUrl != null) {
+                _imageBytes = base64Decode(_profileImageUrl!);
+              }
+            });
+          }
+          _calculateBmi();
+        }
+      } catch (e) {
+        _showErrorSnackBar('Failed to load user data: $e');
+      }
+    }
+    setState(() => _isLoading = false);
+  }
+
+  Future<void> _saveProfile() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    setState(() => _isLoading = true);
+    final user = _auth.currentUser;
+    if (user == null) {
+      _showErrorSnackBar('User not authenticated.');
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    try {
+      String? imageBase64;
+      if (_imageBytes != null) {
+        imageBase64 = base64Encode(_imageBytes!);
+      }
+
+      final Map<String, dynamic> profileData = {
+        'name': _nameController.text,
+        'age': int.tryParse(_ageController.text) ?? 0,
+        'weight': double.tryParse(_weightController.text) ?? 0.0,
+        'height': double.tryParse(_heightController.text) ?? 0.0,
+        'fitnessGoal': _goalController.text,
+        'profileImageUrl': imageBase64,
+      };
+
+      await _userService.updateUserProfile(user.uid, profileData);
+
+      if (mounted) {
+        setState(() {
+          if (imageBase64 != null) {
+            _profileImageUrl = imageBase64;
+          }
+          _selectedImageFile = null;
+        });
+      }
+
+      _showSuccessSnackBar('Profile updated successfully!');
+    } catch (e) {
+      _showErrorSnackBar('Failed to save profile: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _calculateBmi() {
+    final weight = double.tryParse(_weightController.text) ?? 0;
+    final height = double.tryParse(_heightController.text) ?? 0;
+    if (weight > 0 && height > 0) {
+      setState(() {
+        _bmi = weight / ((height / 100) * (height / 100));
+      });
+    }
   }
 
   Future<void> _pickImage() async {
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
+      final bytes = await image.readAsBytes();
       setState(() {
-        _selectedImage = File(image.path);
+        _selectedImageFile = image;
+        _imageBytes = bytes;
       });
     }
+  }
+  
+  void _showErrorSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: Colors.red,
+    ));
+  }
+
+  void _showSuccessSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: Colors.green,
+    ));
   }
 
   @override
@@ -54,339 +167,125 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text(
-          'My Profile',
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 20,
+        title: const Text('My Profile'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.image),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ImageViewerScreen()),
+              );
+            },
+            tooltip: 'View Stored Image',
           ),
-        ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: true,
+          IconButton(
+            icon: const Icon(Icons.save),
+            onPressed: _saveProfile,
+          ),
+        ],
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Gradient Header
-            Container(
-              height: 144,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFFEEAECA),
-                    Color(0xFF94BBE9),
-                  ],
-                ),
-              ),
-            ),
-            
-            // Avatar Section
-            Transform.translate(
-              offset: const Offset(0, -56),
-              child: Center(
-                child: Stack(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              child: Form(
+                key: _formKey,
+                child: Column(
                   children: [
-                    Container(
-                      width: 96,
-                      height: 96,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 4,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
+                    // Header and Avatar
+                    _buildHeader(),
+                    
+                    const SizedBox(height: 64),
+                    
+                    // Form Fields
+                    Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        children: [
+                          _buildTextField(controller: _nameController, label: 'Name'),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(child: _buildTextField(controller: _ageController, label: 'Age', keyboardType: TextInputType.number)),
+                              const SizedBox(width: 16),
+                              Expanded(child: _buildTextField(controller: _weightController, label: 'Weight (kg)', keyboardType: TextInputType.number, onChanged: (_) => _calculateBmi())),
+                            ],
                           ),
+                          const SizedBox(height: 16),
+                           Row(
+                            children: [
+                              Expanded(child: _buildTextField(controller: _heightController, label: 'Height (cm)', keyboardType: TextInputType.number, onChanged: (_) => _calculateBmi())),
+                              const SizedBox(width: 16),
+                              Expanded(child: _buildBmiDisplay()),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          _buildTextField(controller: _goalController, label: 'Fitness Goal', maxLines: 3),
                         ],
                       ),
-                      child: ClipOval(
-                        child: _selectedImage != null
-                            ? Image.file(
-                                _selectedImage!,
-                                fit: BoxFit.cover,
-                              )
-                            : Image.network(
-                                'https://github.com/shadcn.png',
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    color: Colors.grey[300],
-                                    child: const Icon(
-                                      Icons.person,
-                                      size: 48,
-                                      color: Colors.grey,
-                                    ),
-                                  );
-                                },
-                              ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: GestureDetector(
-                        onTap: _pickImage,
-                        child: Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.6),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.add_a_photo,
-                            size: 16,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
                     ),
                   ],
                 ),
               ),
             ),
-            
-            // Form Content
-            Container(
-              margin: const EdgeInsets.only(top: 24),
-              child: Column(
-                children: [
-                  // Name and Role Row
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _buildTextField(
-                            controller: _nameController,
-                            label: 'Full Name',
-                            placeholder: 'E.g. John Doe',
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _buildTextField(
-                            controller: _roleController,
-                            label: 'Role',
-                            placeholder: 'Frontend Developer',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 16),
-                  
-                  // Email and Portfolio Row
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _buildTextField(
-                            controller: _emailController,
-                            label: 'Email',
-                            placeholder: 'your@email.com',
-                            keyboardType: TextInputType.emailAddress,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _buildTextField(
-                            controller: _portfolioController,
-                            label: 'Portfolio',
-                            placeholder: 'https://yourportfolio.com',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 16),
-                  
-                  // Location and Company Row
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _buildTextField(
-                            controller: _locationController,
-                            label: 'Location',
-                            placeholder: 'City, Country',
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _buildTextField(
-                            controller: _companyController,
-                            label: 'Company',
-                            placeholder: 'Your Company',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 16),
-                  
-                  // GitHub and LinkedIn Row
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _buildTextField(
-                            controller: _githubController,
-                            label: 'GitHub',
-                            placeholder: 'https://github.com/username',
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _buildTextField(
-                            controller: _linkedinController,
-                            label: 'LinkedIn',
-                            placeholder: 'https://linkedin.com/in/username',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 16),
-                  
-                  // About Section
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'About',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: _aboutController,
-                          maxLength: _maxLength,
-                          maxLines: 4,
-                          decoration: InputDecoration(
-                            hintText: 'Tell us a little about yourself...',
-                            hintStyle: TextStyle(
-                              color: Colors.grey[500],
-                              fontSize: 14,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(color: Colors.grey[300]!),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(color: Colors.grey[300]!),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(color: Colors.blue),
-                            ),
-                            filled: true,
-                            fillColor: Colors.white,
-                            contentPadding: const EdgeInsets.all(12),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: Text(
-                            '${_maxLength - _aboutController.text.length} characters left',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 32),
-                  
-                  // Action Buttons
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                            },
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              side: BorderSide(color: Colors.grey[300]!),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            child: const Text(
-                              'Cancel',
-                              style: TextStyle(
-                                color: Colors.black87,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () {
-                              // Save changes logic here
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Profile updated successfully!'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
-                              Navigator.pop(context);
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            child: const Text(
-                              'Save Changes',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 24),
-                ],
+    );
+  }
+
+  Widget _buildHeader() {
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        Container(
+          height: 144,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFFEEAECA), Color(0xFF94BBE9)],
+            ),
+          ),
+        ),
+        Positioned(
+          top: 144 - 48,
+          child: GestureDetector(
+            onTap: _pickImage,
+            child: CircleAvatar(
+              radius: 48,
+              backgroundColor: Colors.white,
+              child: CircleAvatar(
+                radius: 45,
+                backgroundImage: _imageBytes != null
+                    ? MemoryImage(_imageBytes!)
+                    : (_profileImageUrl != null
+                        ? MemoryImage(base64Decode(_profileImageUrl!))
+                        : const NetworkImage('https://github.com/shadcn.png')) as ImageProvider,
+                child: _imageBytes == null && _profileImageUrl == null
+                    ? const Icon(Icons.person, size: 48)
+                    : null,
               ),
             ),
-          ],
+          ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildBmiDisplay() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('BMI', style: TextStyle(color: Colors.grey, fontSize: 12)),
+          const SizedBox(height: 4),
+          Text(
+            _bmi > 0 ? _bmi.toStringAsFixed(2) : 'N/A',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ],
       ),
     );
   }
@@ -394,48 +293,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
-    required String placeholder,
-    TextInputType? keyboardType,
+    int maxLines = 1,
+    TextInputType keyboardType = TextInputType.text,
+    Function(String)? onChanged,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          keyboardType: keyboardType,
-          decoration: InputDecoration(
-            hintText: placeholder,
-            hintStyle: TextStyle(
-              color: Colors.grey[500],
-              fontSize: 14,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: Colors.grey[300]!),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: Colors.grey[300]!),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Colors.blue),
-            ),
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.all(12),
-          ),
-        ),
-      ],
+    return TextFormField(
+      controller: controller,
+      maxLines: maxLines,
+      keyboardType: keyboardType,
+      onChanged: onChanged,
+      decoration: InputDecoration(
+        labelText: label,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter a value';
+        }
+        return null;
+      },
     );
   }
 } 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'services/user_service.dart';
 import 'plan_detail_screen.dart';
 
 class SavedPlansScreen extends StatefulWidget {
@@ -8,7 +9,9 @@ class SavedPlansScreen extends StatefulWidget {
 }
 
 class _SavedPlansScreenState extends State<SavedPlansScreen> {
-  late Future<List<String>> _savedPlansFuture;
+  final UserService _userService = UserService();
+  final User? _currentUser = FirebaseAuth.instance.currentUser;
+  late Future<List<Map<String, dynamic>>> _savedPlansFuture;
 
   @override
   void initState() {
@@ -16,25 +19,37 @@ class _SavedPlansScreenState extends State<SavedPlansScreen> {
     _savedPlansFuture = _loadSavedPlans();
   }
 
-  Future<List<String>> _loadSavedPlans() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getStringList('saved_diet_plans') ?? [];
+  Future<List<Map<String, dynamic>>> _loadSavedPlans() async {
+    if (_currentUser == null) return [];
+    return _userService.getDietPlans(_currentUser!.uid);
   }
 
   Future<void> _deletePlan(int index) async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> plans = await _loadSavedPlans();
-    plans.removeAt(index);
-    await prefs.setStringList('saved_diet_plans', plans);
-    setState(() {
-      _savedPlansFuture = Future.value(plans);
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Plan deleted successfully!'),
-        backgroundColor: Colors.red.shade600,
-      ),
-    );
+    if (_currentUser == null) return;
+
+    // To handle deletions correctly when list is reversed, we need original index
+    final plans = await _savedPlansFuture;
+    final originalIndex = plans.length - 1 - index;
+
+    try {
+      await _userService.deleteDietPlan(_currentUser!.uid, originalIndex);
+      setState(() {
+        _savedPlansFuture = _loadSavedPlans();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Plan deleted successfully!'),
+          backgroundColor: Colors.red.shade600,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete plan: $e'),
+          backgroundColor: Colors.red.shade600,
+        ),
+      );
+    }
   }
 
   @override
@@ -53,7 +68,7 @@ class _SavedPlansScreenState extends State<SavedPlansScreen> {
             end: Alignment.bottomRight,
           ),
         ),
-        child: FutureBuilder<List<String>>(
+        child: FutureBuilder<List<Map<String, dynamic>>>(
           future: _savedPlansFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
@@ -62,7 +77,7 @@ class _SavedPlansScreenState extends State<SavedPlansScreen> {
             if (snapshot.hasError) {
               return Center(child: Text("Error: Could not load saved plans."));
             }
-            final plans = snapshot.data;
+            var plans = snapshot.data;
             if (plans == null || plans.isEmpty) {
               return Center(
                 child: Column(
@@ -87,13 +102,18 @@ class _SavedPlansScreenState extends State<SavedPlansScreen> {
                 ),
               );
             }
+
+            // Reverse the list to show newest plans first
+            plans = plans.reversed.toList();
+
             return ListView.builder(
               padding: const EdgeInsets.all(8.0),
               itemCount: plans.length,
               itemBuilder: (context, index) {
-                final plan = plans[index];
-                final planTitle = "Diet Plan #${index + 1}";
-                final planSnippet = plan.split('\n').first;
+                final planData = plans![index];
+                final planText = planData['plan'] as String? ?? 'No content';
+                final planTitle = "Diet Plan #${plans.length - index}";
+                final planSnippet = planText.split('\n').first;
 
                 return Card(
                   margin: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -120,7 +140,7 @@ class _SavedPlansScreenState extends State<SavedPlansScreen> {
                         context,
                         MaterialPageRoute(
                           builder: (context) => PlanDetailScreen(
-                            plan: plan,
+                            plan: planText,
                             title: planTitle,
                           ),
                         ),

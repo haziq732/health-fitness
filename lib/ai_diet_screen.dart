@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'services/gemini_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'services/user_service.dart';
 
 class AIDietScreen extends StatefulWidget {
   @override
@@ -9,24 +11,38 @@ class AIDietScreen extends StatefulWidget {
 
 class _AIDietScreenState extends State<AIDietScreen> {
   final TextEditingController promptController = TextEditingController();
+  final UserService _userService = UserService();
+  final User? _currentUser = FirebaseAuth.instance.currentUser;
   String? generatedPlan;
   bool isLoading = false;
   String? errorMessage;
 
   Future<void> _savePlan() async {
-    if (generatedPlan == null) return;
+    if (generatedPlan == null || _currentUser == null) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    List<String> plans = prefs.getStringList('saved_diet_plans') ?? [];
-    plans.add(generatedPlan!);
-    await prefs.setStringList('saved_diet_plans', plans);
+    final dietData = {
+      'plan': generatedPlan!,
+      'createdAt': Timestamp.now(),
+      'source': 'AI-Generated'
+    };
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Diet plan saved successfully!'),
-        backgroundColor: Colors.green.shade600,
-      ),
-    );
+    try {
+      await _userService.addDietPlan(_currentUser!.uid, dietData);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Diet plan saved to your profile!'),
+          backgroundColor: Colors.green.shade600,
+        ),
+      );
+    } catch (e) {
+       ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save plan: $e'),
+          backgroundColor: Colors.red.shade600,
+        ),
+      );
+    }
   }
 
   Future<void> _generateDietPlan() async {
