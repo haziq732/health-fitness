@@ -274,9 +274,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _buildDashboardItem(context, "Admin Dashboard", Icons.admin_panel_settings, Colors.red, () {
           Navigator.push(context, MaterialPageRoute(builder: (_) => AdminScreen()));
         }),
-        _buildDashboardItem(context, "My Profile", Icons.person, Colors.purple, () {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen())).then((_) => _loadDashboardData());
-        }),
       ];
     } else {
       items = [

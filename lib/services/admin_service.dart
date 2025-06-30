@@ -16,6 +16,98 @@ class AdminService {
     return user.email == ADMIN_EMAIL;
   }
   
+  // Get all users (including those without diet plans)
+  Future<List<Map<String, dynamic>>> getAllUsers() async {
+    try {
+      final QuerySnapshot usersSnapshot = await _firestore.collection('users').get();
+      List<Map<String, dynamic>> allUsers = [];
+      
+      for (var userDoc in usersSnapshot.docs) {
+        final userData = userDoc.data() as Map<String, dynamic>;
+        
+        // Skip admin user
+        if (userData['email'] == ADMIN_EMAIL) continue;
+        
+        final List<dynamic> dietPlans = userData['dietPlans'] ?? [];
+        
+        allUsers.add({
+          'uid': userDoc.id,
+          'email': userData['email'] ?? 'Unknown',
+          'name': userData['profile']?['name'] ?? 'Unknown',
+          'dietPlans': dietPlans,
+          'createdAt': userData['createdAt'],
+          'profile': userData['profile'] ?? {},
+        });
+      }
+      
+      // Sort by creation date, newest first
+      allUsers.sort((a, b) {
+        final aDate = a['createdAt'] as Timestamp?;
+        final bDate = b['createdAt'] as Timestamp?;
+        if (aDate == null && bDate == null) return 0;
+        if (aDate == null) return 1;
+        if (bDate == null) return -1;
+        return bDate.compareTo(aDate);
+      });
+      
+      return allUsers;
+    } catch (e) {
+      print('Failed to get all users: $e');
+      return [];
+    }
+  }
+  
+  // Get detailed user information
+  Future<Map<String, dynamic>?> getUserDetails(String userId) async {
+    try {
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (!userDoc.exists) return null;
+      
+      final userData = userDoc.data() as Map<String, dynamic>;
+      return {
+        'uid': userDoc.id,
+        'email': userData['email'] ?? 'Unknown',
+        'name': userData['profile']?['name'] ?? 'Unknown',
+        'age': userData['profile']?['age'] ?? 'Not specified',
+        'gender': userData['profile']?['gender'] ?? 'Not specified',
+        'weight': userData['profile']?['weight'] ?? 'Not specified',
+        'height': userData['profile']?['height'] ?? 'Not specified',
+        'activityLevel': userData['profile']?['activityLevel'] ?? 'Not specified',
+        'goal': userData['profile']?['goal'] ?? 'Not specified',
+        'dietPlans': userData['dietPlans'] ?? [],
+        'createdAt': userData['createdAt'],
+        'profile': userData['profile'] ?? {},
+      };
+    } catch (e) {
+      print('Failed to get user details: $e');
+      return null;
+    }
+  }
+  
+  // Delete user account and all associated data
+  Future<void> deleteUserAccount(String userId) async {
+    try {
+      // Get user data first to check if it's admin
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (!userDoc.exists) throw Exception('User not found');
+      
+      final userData = userDoc.data() as Map<String, dynamic>;
+      if (userData['email'] == ADMIN_EMAIL) {
+        throw Exception('Cannot delete admin account');
+      }
+      
+      // Delete user document from Firestore
+      await _firestore.collection('users').doc(userId).delete();
+      
+      // Note: Firebase Auth user deletion requires admin SDK or user authentication
+      // For now, we only delete the Firestore data
+      // The user will still be able to log in but won't have any data
+    } catch (e) {
+      print('Failed to delete user account: $e');
+      rethrow;
+    }
+  }
+  
   // Get all users with their diet plans
   Future<List<Map<String, dynamic>>> getAllUsersWithDietPlans() async {
     try {

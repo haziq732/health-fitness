@@ -3,22 +3,32 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'services/admin_service.dart';
 import 'plan_detail_screen.dart';
+import 'user_management_screen.dart';
 
 class AdminScreen extends StatefulWidget {
   @override
   _AdminScreenState createState() => _AdminScreenState();
 }
 
-class _AdminScreenState extends State<AdminScreen> {
+class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStateMixin {
   final AdminService _adminService = AdminService();
   bool _isLoading = true;
   List<Map<String, dynamic>> _usersWithPlans = [];
   Map<String, dynamic> _statistics = {};
+  late TabController _tabController;
+  final GlobalKey<UserManagementScreenState> _userManagementKey = GlobalKey<UserManagementScreenState>();
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -94,39 +104,73 @@ class _AdminScreenState extends State<AdminScreen> {
         title: Text('Admin Dashboard'),
         backgroundColor: Colors.red.shade700,
         foregroundColor: Colors.white,
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          tabs: [
+            Tab(
+              icon: Icon(Icons.restaurant_menu),
+              text: 'Diet Plans',
+            ),
+            Tab(
+              icon: Icon(Icons.people),
+              text: 'User Management',
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             icon: Icon(Icons.refresh),
-            onPressed: _loadData,
+            onPressed: () {
+              if (_tabController.index == 0) {
+                _loadData();
+              } else if (_tabController.index == 1) {
+                _userManagementKey.currentState?.loadUsers();
+              }
+            },
             tooltip: 'Refresh',
           ),
         ],
       ),
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator())
-          : Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.red.shade50, Colors.red.shade100],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: Column(
-                children: [
-                  // Statistics Cards
-                  _buildStatisticsCards(),
-                  
-                  // Users with Diet Plans
-                  Expanded(
-                    child: _usersWithPlans.isEmpty
-                        ? _buildEmptyState()
-                        : _buildUsersList(),
-                  ),
-                ],
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          // Diet Plans Tab
+          _buildDietPlansTab(),
+          // User Management Tab
+          UserManagementScreen(key: _userManagementKey),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDietPlansTab() {
+    return _isLoading
+        ? Center(child: CircularProgressIndicator())
+        : Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.red.shade50, Colors.red.shade100],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
             ),
-    );
+            child: Column(
+              children: [
+                // Statistics Cards
+                _buildStatisticsCards(),
+                
+                // Users with Diet Plans
+                Expanded(
+                  child: _usersWithPlans.isEmpty
+                      ? _buildEmptyState()
+                      : _buildUsersList(),
+                ),
+              ],
+            ),
+          );
   }
 
   Widget _buildStatisticsCards() {
@@ -243,7 +287,7 @@ class _AdminScreenState extends State<AdminScreen> {
             leading: CircleAvatar(
               backgroundColor: Colors.red.shade100,
               child: Text(
-                user['name'][0].toUpperCase(),
+                (user['name'] != null && user['name'].isNotEmpty ? user['name'][0].toUpperCase() : '?'),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: Colors.red.shade700,

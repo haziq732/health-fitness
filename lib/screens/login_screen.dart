@@ -9,6 +9,7 @@ import '../services/user_service.dart';
 import '../services/admin_service.dart';
 import '../register_screen.dart';
 import '../widgets/welcome_dialog.dart';
+import '../admin_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -163,10 +164,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
 
         if (mounted) {
           if (isAdmin) {
-            // Admin users go directly to dashboard without welcome dialog
+            // Admin users go directly to admin dashboard
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(builder: (context) => DashboardScreen()),
+              MaterialPageRoute(builder: (context) => AdminScreen()),
             );
           } else {
             // Regular users check if they're new and show welcome dialog if needed
