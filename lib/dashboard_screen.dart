@@ -13,6 +13,67 @@ import 'saved_plans_screen.dart';
 import 'admin_screen.dart';
 import 'services/admin_service.dart';
 import 'dart:math';
+import 'widgets/ai_diet_prompt_dialog.dart';
+import 'package:fl_chart/fl_chart.dart';
+
+class ShakeWidget extends StatefulWidget {
+  final Widget child;
+  final bool shake;
+  final Duration duration;
+  const ShakeWidget({Key? key, required this.child, required this.shake, this.duration = const Duration(milliseconds: 500)}) : super(key: key);
+  @override
+  State<ShakeWidget> createState() => _ShakeWidgetState();
+}
+
+class _ShakeWidgetState extends State<ShakeWidget> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _offsetAnimation;
+  bool _wasShaking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: widget.duration);
+    _offsetAnimation = TweenSequence([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: -10.0), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: -10.0, end: 10.0), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 10.0, end: -10.0), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -10.0, end: 10.0), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 10.0, end: 0.0), weight: 1),
+    ]).animate(CurvedAnimation(parent: _controller, curve: Curves.elasticIn));
+  }
+
+  @override
+  void didUpdateWidget(covariant ShakeWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.shake && !_wasShaking) {
+      _controller.forward(from: 0.0);
+      _wasShaking = true;
+    } else if (!widget.shake) {
+      _wasShaking = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(_offsetAnimation.value, 0),
+          child: child,
+        );
+      },
+      child: widget.child,
+    );
+  }
+}
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -89,6 +150,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isWaterUpdating = false;
   Map<String, dynamic> _summaryData = {};
   bool _isAdmin = false;
+  DateTime _selectedDate = DateTime.now();
 
   @override
   void initState() {
@@ -118,18 +180,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final waterLogs = await _userService.getWaterLogsForToday(_currentUser.uid);
       final workoutLogs = await _userService.getWorkoutLogs(_currentUser.uid);
       
-      final today = DateTime.now();
-      final startOfDay = DateTime(today.year, today.month, today.day);
+      final selected = _selectedDate;
+      final startOfDay = DateTime(selected.year, selected.month, selected.day);
+      final endOfDay = startOfDay.add(Duration(days: 1));
 
       double caloriesToday = foodLogs
-        .where((log) => (log['timestamp'] as Timestamp).toDate().isAfter(startOfDay))
+        .where((log) {
+          final date = (log['timestamp'] as Timestamp).toDate();
+          return date.isAfter(startOfDay.subtract(const Duration(milliseconds: 1))) && date.isBefore(endOfDay);
+        })
         .fold(0.0, (sum, item) => sum + (item['calories'] as double));
 
       double caloriesBurnedToday = workoutLogs
-        .where((log) => (log['timestamp'] as Timestamp).toDate().isAfter(startOfDay))
+        .where((log) {
+          final date = (log['timestamp'] as Timestamp).toDate();
+          return date.isAfter(startOfDay.subtract(const Duration(milliseconds: 1))) && date.isBefore(endOfDay);
+        })
         .fold(0.0, (sum, item) => sum + (item['caloriesBurned'] as num));
 
-      int waterToday = waterLogs.fold(0, (sum, item) => sum + (item['glasses'] as int));
+      int waterToday = 0;
+      if (waterLogs.isNotEmpty && waterLogs[0]['date'] != null) {
+        // If waterLogs are timestamped, filter by selected date
+        waterToday = waterLogs.where((log) {
+          final date = (log['date'] as Timestamp).toDate();
+          return date.year == selected.year && date.month == selected.month && date.day == selected.day;
+        }).fold(0, (sum, item) => sum + (item['glasses'] as int));
+      }
 
       setState(() {
         _summaryData = {
@@ -151,30 +227,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey.shade50,
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadDashboardData,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    _buildWelcomeHeader(),
-                    SizedBox(height: 24),
-                    if (!_isAdmin)
-                      _buildSummaryCard(),
-                    if (!_isAdmin)
-                      SizedBox(height: 24),
-                    _buildNavigationGrid(context),
-                  ],
-                ),
+  void _pickSummaryDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2024, 1, 1),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: Colors.blue.shade700,
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black87,
+            ),
+            dialogBackgroundColor: Colors.white,
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.blue.shade700,
               ),
             ),
+            datePickerTheme: DatePickerThemeData(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              todayBackgroundColor: MaterialStateProperty.all(Colors.blue.shade100),
+              headerBackgroundColor: Colors.blue.shade700,
+              headerForegroundColor: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
+    if (picked != null) {
+      setState(() {
+        _selectedDate = picked;
+      });
+      await _loadDashboardData();
+    }
   }
 
   Widget _buildWelcomeHeader() {
@@ -198,6 +288,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildSummaryCard() {
+    String dateLabel;
+    if (_isToday(_selectedDate)) {
+      dateLabel = "Today's Summary";
+    } else if (_isYesterday(_selectedDate)) {
+      dateLabel = "Yesterday's Summary";
+    } else {
+      dateLabel = 'Summary for ' + DateFormat('MMMM d, yyyy').format(_selectedDate);
+    }
     return Card(
       elevation: 8,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -206,20 +304,58 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("Today's Summary", style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            InkWell(
+              onTap: _pickSummaryDate,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4.0),
+                child: Text(
+                  dateLabel,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
             SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildSummaryItem(Icons.local_fire_department_outlined, "${_summaryData['caloriesToday']?.toStringAsFixed(0) ?? 0}", "Calories In", " / ${_summaryData['calorieGoal'] ?? 2000} kcal", Colors.orange),
-                _buildSummaryItem(Icons.directions_run, "${_summaryData['caloriesBurnedToday']?.toStringAsFixed(0) ?? 0}", "Calories Out", " / ${_summaryData['calorieBurnGoal'] ?? 500} kcal", Colors.red),
+                _buildSummaryItem(Icons.local_fire_department_outlined, "${_summaryData['caloriesToday']?.toStringAsFixed(0) ?? 0}", "Calories In", " / ${_summaryData['calorieGoal'] ?? 2000} cal", Colors.orange),
+                _buildSummaryItem(Icons.directions_run, "${_summaryData['caloriesBurnedToday']?.toStringAsFixed(0) ?? 0}", "Calories Out", " / ${_summaryData['calorieBurnGoal'] ?? 500} cal", Colors.red),
                 _buildWaterSummaryItem(),
               ],
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildProgressButton() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12.0, bottom: 8.0),
+      child: Center(
+        child: ElevatedButton.icon(
+          onPressed: _showProgressBottomSheet,
+          icon: Icon(Icons.show_chart),
+          label: Text('View Progress'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blue.shade700,
+            foregroundColor: Colors.white,
+            padding: EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showProgressBottomSheet() async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) => _ProgressChartSheet(userService: _userService, userId: _currentUser?.uid),
     );
   }
 
@@ -345,7 +481,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Navigator.push(context, MaterialPageRoute(builder: (_) => WorkoutTrackerScreen())).then((_) => _loadDashboardData());
         }),
         _buildDashboardItem(context, "AI Diet Plan", Icons.smart_toy, Colors.blue, () async {
-          final prompt = await _showAIDietPromptDialog(context);
+          final prompt = await showAIDietPromptDialog(context);
           if (prompt != null && prompt.isNotEmpty) {
             Navigator.push(context, MaterialPageRoute(builder: (_) => AIDietScreen(initialPrompt: prompt))).then((_) => _loadDashboardData());
           }
@@ -419,559 +555,348 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return false;
   }
 
-  Future<String?> _showAIDietPromptDialog(BuildContext context) async {
-    // State for all steps
-    String? goal;
-    List<String> selectedHealth = [];
-    bool noneHealth = false;
-    bool takingMedication = false;
-    String medicationDetails = '';
-    bool hasAllergies = false;
-    String allergyDetails = '';
-    bool otherHealthSelected = false;
-    String otherHealth = '';
-    List<String> selectedFood = [];
-    bool noneFood = false;
-    bool otherFoodSelected = false;
-    String otherFood = '';
-    String dislikes = '';
-    String favorites = '';
-    String mealCount = '3';
-    String selectedPrompt = '';
+  bool _isToday(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year && date.month == now.month && date.day == now.day;
+  }
 
-    int step = 0; // 0: Goal, 1: Health, 2: Food, 3: Prompt
-    bool cancelled = false;
+  bool _isYesterday(DateTime date) {
+    final now = DateTime.now();
+    final yesterday = now.subtract(Duration(days: 1));
+    return date.year == yesterday.year && date.month == yesterday.month && date.day == yesterday.day;
+  }
 
-    // Conversational prompt templates (no colons, semicolons, or list formatting)
-    final List<String> promptTemplates = [
-      "I'm hoping to {goal} and my health background includes {health}. I usually prefer {food} and would love a plan with {mealCount} meals each day.",
-      "Could you help me {goal}? I deal with {health} and my food preferences are {food}. I don't like {dislikes} but enjoy {favorites}.",
-      "I'd like to {goal}. My medical situation is {health}. I have some allergies, {allergies}. I really like {favorites} and try to avoid {dislikes}. I usually eat {mealCount} meals a day.",
-      "My goal is to {goal} and I have {health}. I prefer {food}, dislike {dislikes}, and my favorites are {favorites}. I want to have {mealCount} meals per day.",
-      "I'm working towards {goal} with {health} in mind. I enjoy {favorites}, dislike {dislikes}, and usually go for {food}. {mealCount} meals a day would be great.",
-      "I want to {goal} and I have been managing {health}. My favorite foods are {favorites} and I try to avoid {dislikes}. I would like a plan that fits {food} and includes {mealCount} meals a day.",
-      "Please help me {goal}. I have {health} and I prefer eating {food}. I don't enjoy {dislikes} but love {favorites}. I usually eat {mealCount} meals daily.",
-      "I'm interested in {goal} and my health history includes {health}. I like {favorites}, avoid {dislikes}, and my food choices are {food}. I want a plan with {mealCount} meals per day.",
-      "My aim is to {goal}. I have {health} and my food preferences are {food}. I enjoy {favorites} and dislike {dislikes}. I would like {mealCount} meals each day.",
-      "I'm looking to {goal} while considering {health}. I like to eat {food}, my favorites are {favorites}, and I try to stay away from {dislikes}. {mealCount} meals a day works best for me.",
-      "I hope to {goal} and I have {health}. I prefer {food}, love {favorites}, and dislike {dislikes}. I want a meal plan with {mealCount} meals per day.",
-      "Can you help me {goal}? My health includes {health} and I like {food}. I enjoy {favorites} and don't like {dislikes}. {mealCount} meals a day is my preference.",
-      // Add more templates for even more variety!
-    ];
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey.shade50,
+      body: _isLoading
+          ? Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadDashboardData,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    _buildWelcomeHeader(),
+                    SizedBox(height: 24),
+                    if (!_isAdmin)
+                      _buildSummaryCard(),
+                    if (!_isAdmin)
+                      _buildProgressButton(),
+                    if (!_isAdmin)
+                      SizedBox(height: 24),
+                    _buildNavigationGrid(context),
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
+}
 
-    String buildHealthString(List<String> health, bool takingMedication, String medicationDetails, bool hasAllergies, String allergyDetails) {
-      List<String> parts = [];
-      if (health.isNotEmpty) parts.add(health.join(', '));
-      if (takingMedication && medicationDetails.isNotEmpty) parts.add("taking $medicationDetails");
-      if (hasAllergies && allergyDetails.isNotEmpty) parts.add("allergic to $allergyDetails");
-      if (parts.isEmpty) return "no medical conditions";
-      if (parts.length == 1) return parts[0];
-      return '${parts.sublist(0, parts.length - 1).join(', ')} and ${parts.last}';
+class _ProgressChartSheet extends StatefulWidget {
+  final UserService userService;
+  final String? userId;
+  const _ProgressChartSheet({required this.userService, required this.userId});
+
+  @override
+  State<_ProgressChartSheet> createState() => _ProgressChartSheetState();
+}
+
+class _ProgressChartSheetState extends State<_ProgressChartSheet> {
+  bool isWeekly = true;
+  Set<String> selectedMetrics = {'Calories In', 'Calories Out', 'Water'};
+  List<DateTime> dateRange = [];
+  List<double> caloriesIn = [];
+  List<double> caloriesOut = [];
+  List<double> water = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    setState(() => isLoading = true);
+    final now = DateTime.now();
+    final days = isWeekly ? 7 : 30;
+    dateRange = List.generate(days, (i) => DateTime(now.year, now.month, now.day).subtract(Duration(days: days - 1 - i)));
+    caloriesIn = List.filled(days, 0);
+    caloriesOut = List.filled(days, 0);
+    water = List.filled(days, 0);
+    if (widget.userId == null) {
+      setState(() => isLoading = false);
+      return;
     }
-
-    String buildFoodString(List<String> food, bool noneFood, String otherFood) {
-      if (noneFood) return "no special food";
-      List<String> all = List.from(food);
-      if (otherFood.isNotEmpty) all.add(otherFood);
-      return all.isNotEmpty ? all.join(', ') : "no special food";
+    final foodLogs = await widget.userService.getFoodLogs(widget.userId!);
+    final workoutLogs = await widget.userService.getWorkoutLogs(widget.userId!);
+    final userData = await widget.userService.getUserData(widget.userId!);
+    final waterLogs = (userData != null && userData.containsKey('waterLogs_array'))
+        ? List<Map<String, dynamic>>.from(userData['waterLogs_array'])
+        : [];
+    for (int i = 0; i < days; i++) {
+      final d = dateRange[i];
+      final start = DateTime(d.year, d.month, d.day);
+      final end = start.add(Duration(days: 1));
+      caloriesIn[i] = foodLogs.where((log) {
+        final date = (log['timestamp'] as Timestamp).toDate();
+        return date.isAfter(start.subtract(const Duration(milliseconds: 1))) && date.isBefore(end);
+      }).fold(0.0, (sum, item) => sum + (item['calories'] as double));
+      caloriesOut[i] = workoutLogs.where((log) {
+        final date = (log['timestamp'] as Timestamp).toDate();
+        return date.isAfter(start.subtract(const Duration(milliseconds: 1))) && date.isBefore(end);
+      }).fold(0.0, (sum, item) => sum + (item['caloriesBurned'] as num));
+      water[i] = waterLogs.where((log) {
+        final date = (log['date'] as Timestamp).toDate();
+        return date.year == d.year && date.month == d.month && date.day == d.day;
+      }).fold(0.0, (sum, item) => sum + (item['glasses'] as int).toDouble());
     }
+    setState(() => isLoading = false);
+  }
 
-    // Helper to get up to 3 unique random prompts
-    List<String> getRandomPrompts(int count) {
-      final random = Random();
-      final Set<String> prompts = {};
-      int attempts = 0;
-      while (prompts.length < count && attempts < 10 * count) {
-        final template = promptTemplates[random.nextInt(promptTemplates.length)];
-        final healthStr = buildHealthString(selectedHealth, takingMedication, medicationDetails, hasAllergies, allergyDetails);
-        final foodStr = buildFoodString(selectedFood, noneFood, otherFood);
-        final prompt = template
-          .replaceAll('{goal}', goal ?? '')
-          .replaceAll('{health}', healthStr)
-          .replaceAll('{food}', foodStr)
-          .replaceAll('{dislikes}', dislikes.isNotEmpty ? dislikes : 'none')
-          .replaceAll('{favorites}', favorites.isNotEmpty ? favorites : 'none')
-          .replaceAll('{allergies}', hasAllergies && allergyDetails.isNotEmpty ? allergyDetails : 'none')
-          .replaceAll('{mealCount}', mealCount);
-        prompts.add(prompt);
-        attempts++;
+  void _toggleMetric(String metric) {
+    setState(() {
+      if (selectedMetrics.contains(metric)) {
+        selectedMetrics.remove(metric);
+      } else {
+        selectedMetrics.add(metric);
       }
-      return prompts.toList();
-    }
+      if (selectedMetrics.isEmpty) {
+        selectedMetrics.add(metric); // Always keep at least one
+      }
+    });
+  }
 
-    while (!cancelled) {
-      if (step == 0) {
-        final controller = TextEditingController(text: goal ?? '');
-        String? errorText;
-        final result = await showDialog<String?>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) {
-            return StatefulBuilder(
-              builder: (context, setState) {
-                return AlertDialog(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  titlePadding: EdgeInsets.zero,
-                  title: _DialogHeader(title: 'Your Main Goal', step: 1, totalSteps: 4, icon: Icons.flag),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(height: 8),
-                      TextField(
-                        controller: controller,
-                        decoration: InputDecoration(
-                          labelText: 'Your goal (e.g., lose weight, gain muscle, etc.)',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          prefixIcon: Icon(Icons.emoji_events),
-                          errorText: errorText,
-                        ),
-                      ),
-                      SizedBox(height: 16),
-                      Text('Tip: Setting a clear goal helps create a more personalized plan!', style: TextStyle(fontSize: 12, color: Colors.green.shade700)),
-                    ],
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(null),
-                      child: Text('Cancel'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () {
-                        if (!isValidGoal(controller.text)) {
-                          setState(() { errorText = 'Please enter a meaningful goal (e.g., "lose weight", "gain muscle", "improve stamina").'; });
-                          return;
-                        }
-                        Navigator.of(context).pop(controller.text.trim());
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: Text('Next'),
+  String _formatYAxis(double value) {
+    if (value >= 1000) {
+      return value.toInt().toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',');
+    }
+    return value.toInt().toString();
+  }
+  @override
+  Widget build(BuildContext context) {
+    final metricColors = {
+      'Calories In': Colors.orange,
+      'Calories Out': Colors.blue,
+      'Water': Colors.green,
+    };
+    final metricData = {
+      'Calories In': caloriesIn,
+      'Calories Out': caloriesOut,
+      'Water': water,
+    };
+    final metricUnits = {
+      'Calories In': 'cal',
+      'Calories Out': 'cal',
+      'Water': 'glasses',
+    };
+    double maxY = 10;
+    for (var metric in selectedMetrics) {
+      final maxMetric = metricData[metric]?.reduce((a, b) => a > b ? a : b) ?? 0;
+      if (maxMetric > maxY) maxY = maxMetric;
+    }
+    maxY = (maxY < 10) ? 10 : (maxY * 1.2).ceilToDouble();
+    final hasData = selectedMetrics.any((metric) => metricData[metric]!.any((v) => v > 0));
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SafeArea(
+        child: Container(
+          padding: EdgeInsets.symmetric(horizontal: 0, vertical: 0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                child: Row(
+                  children: [
+                    Text('Progress Overview', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+                    Spacer(),
+                    IconButton(
+                      icon: Icon(Icons.close, color: Colors.grey.shade700),
+                      onPressed: () => Navigator.pop(context),
                     ),
                   ],
-                );
-              },
-            );
-          },
-        );
-        if (result == null) return null;
-        goal = result;
-        step = 1;
-        continue;
-      }
-      if (step == 1) {
-        String? errorText;
-        final otherHealthController = TextEditingController(text: otherHealth ?? '');
-        final medicationController = TextEditingController(text: medicationDetails ?? '');
-        final allergyController = TextEditingController(text: allergyDetails ?? '');
-        final result = await showDialog<int?>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) {
-            return StatefulBuilder(
-              builder: (context, setState) {
-                return AlertDialog(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  titlePadding: EdgeInsets.zero,
-                  title: _DialogHeader(
-                    title: 'Medical Conditions',
-                    step: 2,
-                    totalSteps: 4,
-                    icon: Icons.health_and_safety,
-                    onBack: () => Navigator.of(context).pop(0),
-                  ),
-                  content: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            ChoiceChip(
-                              label: Text('None'),
-                              selected: noneHealth,
-                              onSelected: (selected) {
-                                setState(() {
-                                  noneHealth = selected;
-                                  if (selected) selectedHealth.clear();
-                                });
-                              },
-                            ),
-                            ...['Diabetes', 'Pre-Diabetes', 'Cholesterol', 'Hypertension', 'PCOS', 'Thyroid', 'Physical Injury'].map((option) => FilterChip(
-                                  label: Text(option),
-                                  selected: selectedHealth.contains(option),
-                                  onSelected: noneHealth
-                                      ? null
-                                      : (selected) {
-                                          setState(() {
-                                            if (selected) {
-                                              selectedHealth.add(option);
-                                            } else {
-                                              selectedHealth.remove(option);
-                                            }
-                                          });
-                                        },
-                            )),
-                            FilterChip(
-                              label: Text('Other'),
-                              selected: otherHealthSelected,
-                              onSelected: noneHealth
-                                  ? null
-                                  : (selected) {
-                                      setState(() {
-                                        otherHealthSelected = selected;
-                                        if (!selected) otherHealth = '';
-                                      });
-                                    },
-                            ),
-                          ],
-                        ),
-                        if (otherHealthSelected)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8.0),
-                            child: TextField(
-                              decoration: InputDecoration(labelText: 'Other condition'),
-                              controller: otherHealthController,
-                              onChanged: (val) => otherHealth = val,
-                            ),
-                          ),
-                        SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: takingMedication,
-                              onChanged: (val) => setState(() => takingMedication = val ?? false),
-                            ),
-                            Text('Currently taking medication?'),
-                          ],
-                        ),
-                        if (takingMedication)
-                          TextField(
-                            decoration: InputDecoration(labelText: 'Medication details'),
-                            controller: medicationController,
-                            onChanged: (val) => medicationDetails = val,
-                          ),
-                        SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: hasAllergies,
-                              onChanged: (val) => setState(() => hasAllergies = val ?? false),
-                            ),
-                            Text('Any food allergies?'),
-                          ],
-                        ),
-                        if (hasAllergies)
-                          TextField(
-                            decoration: InputDecoration(labelText: 'Allergy details'),
-                            controller: allergyController,
-                            onChanged: (val) => allergyDetails = val,
-                          ),
-                        SizedBox(height: 16),
-                        if (errorText != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8.0),
-                            child: Text(errorText!, style: TextStyle(color: Colors.red)),
-                          ),
-                        Text('Tip: Mentioning health conditions ensures your plan is safe and effective.', style: TextStyle(fontSize: 12, color: Colors.green.shade700)),
-                      ],
-                    ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(null),
-                      child: Text('Cancel'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () {
-                        if (!noneHealth && selectedHealth.isEmpty && !otherHealthSelected) {
-                          setState(() { errorText = 'Please select at least one medical condition or None.'; });
-                          return;
+                ),
+              ),
+              SizedBox(height: 8),
+              // Chips
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ChoiceChip(
+                      label: Text('Week'),
+                      selected: isWeekly,
+                      onSelected: (v) {
+                        if (!isWeekly) {
+                          setState(() => isWeekly = true);
+                          _fetchData();
                         }
-                        if (otherHealthSelected && (otherHealth.trim().isEmpty)) {
-                          setState(() { errorText = 'Please specify your other condition.'; });
-                          return;
-                        }
-                        Navigator.of(context).pop(2);
                       },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: Text('Next'),
+                      selectedColor: Colors.blue.shade100,
+                      labelStyle: TextStyle(color: isWeekly ? Colors.blue.shade700 : Colors.black87, fontWeight: FontWeight.w600),
+                      backgroundColor: Colors.grey.shade100,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    SizedBox(width: 10),
+                    ChoiceChip(
+                      label: Text('Month'),
+                      selected: !isWeekly,
+                      onSelected: (v) {
+                        if (isWeekly) {
+                          setState(() => isWeekly = false);
+                          _fetchData();
+                        }
+                      },
+                      selectedColor: Colors.blue.shade100,
+                      labelStyle: TextStyle(color: !isWeekly ? Colors.blue.shade700 : Colors.black87, fontWeight: FontWeight.w600),
+                      backgroundColor: Colors.grey.shade100,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     ),
                   ],
-                );
-              },
-            );
-          },
-        );
-        if (result == null) return null;
-        if (result == 0) {
-          step = 0;
-          continue;
-        }
-        step = 2;
-        continue;
-      }
-      if (step == 2) {
-        String? errorText;
-        final otherFoodController = TextEditingController(text: otherFood ?? '');
-        final dislikesController = TextEditingController(text: dislikes ?? '');
-        final favoritesController = TextEditingController(text: favorites ?? '');
-        final result = await showDialog<int?>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) {
-            return StatefulBuilder(
-              builder: (context, setState) {
-                // Helper for food validation
-                bool isValidFoodInput(String input) {
-                  final trimmed = input.trim();
-                  if (trimmed.isEmpty) return true; // Optional
-                  if (trimmed.length < 3) return false;
-                  if (trimmed.split(RegExp(r'\s+')).isEmpty) return false;
-                  if (RegExp(r'^[^a-zA-Z]+').hasMatch(trimmed)) return false; // Only numbers/symbols
-                  return true;
-                }
-                return AlertDialog(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  titlePadding: EdgeInsets.zero,
-                  title: _DialogHeader(title: 'Food Preferences', step: 3, totalSteps: 4, icon: Icons.restaurant, onBack: () => Navigator.of(context).pop(1)),
-                  content: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            ChoiceChip(
-                              label: Text('None'),
-                              selected: noneFood,
-                              onSelected: (selected) {
-                                setState(() {
-                                  noneFood = selected;
-                                  if (selected) selectedFood.clear();
-                                });
-                              },
-                            ),
-                            ...['Vegetarian', 'Vegan', 'Halal', 'Kosher', 'Gluten-Free', 'Lactose Intolerant', 'No Seafood', 'No Nuts'].map((option) => FilterChip(
-                                  label: Text(option),
-                                  selected: selectedFood.contains(option),
-                                  onSelected: noneFood
-                                      ? null
-                                      : (selected) {
-                                          setState(() {
-                                            if (selected) {
-                                              selectedFood.add(option);
-                                            } else {
-                                              selectedFood.remove(option);
-                                            }
-                                          });
-                                        },
-                            )),
-                            FilterChip(
-                              label: Text('Other'),
-                              selected: otherFoodSelected,
-                              onSelected: noneFood
-                                  ? null
-                                  : (selected) {
-                                      setState(() {
-                                        otherFoodSelected = selected;
-                                        if (!selected) otherFood = '';
-                                      });
-                                    },
-                            ),
-                          ],
-                        ),
-                        if (otherFoodSelected)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8.0),
-                            child: TextField(
-                              decoration: InputDecoration(labelText: 'Other food preference'),
-                              controller: otherFoodController,
-                              onChanged: (val) => otherFood = val,
-                            ),
-                          ),
-                        SizedBox(height: 16),
-                        TextField(
-                          decoration: InputDecoration(labelText: 'Foods you dislike (e.g., broccoli, spicy food, shellfish)'),
-                          controller: dislikesController,
-                          onChanged: (val) => dislikes = val,
-                        ),
-                        SizedBox(height: 8),
-                        TextField(
-                          decoration: InputDecoration(labelText: 'Favorite foods (e.g., chicken, pasta, mangoes)'),
-                          controller: favoritesController,
-                          onChanged: (val) => favorites = val,
-                        ),
-                        SizedBox(height: 8),
-                        DropdownButtonFormField<String>(
-                          value: mealCount,
-                          items: ['2', '3', '4', '5+']
-                              .map((m) => DropdownMenuItem(value: m, child: Text('$m meals/day')))
-                              .toList(),
-                          onChanged: (val) => setState(() => mealCount = val ?? '3'),
-                          decoration: InputDecoration(labelText: 'Meals per day'),
-                        ),
-                        SizedBox(height: 16),
-                        if (errorText != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8.0),
-                            child: Text(errorText!, style: TextStyle(color: Colors.red)),
-                          ),
-                        Text('Tip: Sharing your food likes and dislikes helps us make your plan enjoyable!', style: TextStyle(fontSize: 12, color: Colors.green.shade700)),
-                      ],
-                    ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(null),
-                      child: Text('Cancel'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () {
-                        if (!noneFood && selectedFood.isEmpty && !otherFoodSelected) {
-                          setState(() { errorText = 'Please select at least one food preference or None.'; });
-                          return;
-                        }
-                        if (otherFoodSelected && (otherFood.trim().isEmpty)) {
-                          setState(() { errorText = 'Please specify your other food preference.'; });
-                          return;
-                        }
-                        // Validate dislikes and favorites if filled
-                        if (!isValidFoodInput(dislikesController.text)) {
-                          setState(() { errorText = 'Please enter at least 1 real food you dislike, or leave blank.'; });
-                          return;
-                        }
-                        if (!isValidFoodInput(favoritesController.text)) {
-                          setState(() { errorText = 'Please enter at least 1 real favorite food, or leave blank.'; });
-                          return;
-                        }
-                        dislikes = dislikesController.text;
-                        favorites = favoritesController.text;
-                        Navigator.of(context).pop(3);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: Text('See Suggestions'),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-        );
-        if (result == null) return null;
-        if (result == 1) {
-          step = 1;
-          continue;
-        }
-        step = 3;
-        continue;
-      }
-      if (step == 3) {
-        // StatefulBuilder for refreshable prompts
-        final random = Random();
-        List<String> randomPrompts = getRandomPrompts(3);
-        selectedPrompt = randomPrompts.first;
-        final result = await showDialog<int?>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) {
-            return StatefulBuilder(
-              builder: (context, setState) {
-                void refreshPrompts() {
-                  final newPrompts = getRandomPrompts(3);
-                  setState(() {
-                    randomPrompts = newPrompts;
-                    selectedPrompt = randomPrompts.first;
-                  });
-                }
-                return AlertDialog(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  titlePadding: EdgeInsets.zero,
-                  title: _DialogHeader(title: 'Choose your AI prompt', step: 4, totalSteps: 4, icon: Icons.smart_toy, onBack: () => Navigator.of(context).pop(2)),
-                  content: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight: MediaQuery.of(context).size.height * 0.6,
-                      maxWidth: 500,
-                    ),
-                    child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ...randomPrompts.map((s) => RadioListTile<String>(
-                                value: s,
-                                groupValue: selectedPrompt,
-                                onChanged: (val) {
-                                  setState(() {
-                                    selectedPrompt = val!;
-                                  });
-                                },
-                                title: Text(s, style: TextStyle(fontSize: 14)),
-                                activeColor: Colors.green.shade700,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              )),
-                          SizedBox(height: 16),
-                          // Fix: Stack tip and refresh vertically to avoid overflow
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(
-                                'Tip: Pick the prompt that best matches your style!',
-                                style: TextStyle(fontSize: 12, color: Colors.green.shade700),
-                                softWrap: true,
-                                overflow: TextOverflow.visible,
-                              ),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton.icon(
-                                  onPressed: refreshPrompts,
-                                  icon: Icon(Icons.refresh, size: 18, color: Colors.green.shade700),
-                                  label: Text('Refresh', style: TextStyle(color: Colors.green.shade700)),
-                                  style: TextButton.styleFrom(minimumSize: Size(0, 32), padding: EdgeInsets.symmetric(horizontal: 8)),
+                ),
+              ),
+              SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Wrap(
+                  spacing: 10,
+                  children: ['Calories In', 'Calories Out', 'Water'].map((metric) => FilterChip(
+                    label: Text(metric),
+                    selected: selectedMetrics.contains(metric),
+                    onSelected: (_) => _toggleMetric(metric),
+                    selectedColor: metricColors[metric]?.withOpacity(0.18),
+                    checkmarkColor: metricColors[metric],
+                    labelStyle: TextStyle(fontWeight: FontWeight.w600, color: selectedMetrics.contains(metric) ? metricColors[metric] : Colors.black87),
+                    backgroundColor: Colors.grey.shade100,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  )).toList(),
+                ),
+              ),
+              SizedBox(height: 18),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                  color: Colors.white,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+                    child: isLoading
+                        ? Padding(
+                            padding: const EdgeInsets.all(32.0),
+                            child: Center(child: CircularProgressIndicator()),
+                          )
+                        : hasData
+                            ? SizedBox(
+                                height: 260,
+                                child: LineChart(
+                                  LineChartData(
+                                    minY: 0,
+                                    maxY: maxY,
+                                    titlesData: FlTitlesData(
+                                      bottomTitles: AxisTitles(
+                                        sideTitles: SideTitles(
+                                          showTitles: true,
+                                          getTitlesWidget: (value, meta) {
+                                            int idx = value.toInt();
+                                            if (idx < 0 || idx >= dateRange.length) return SizedBox.shrink();
+                                            final d = dateRange[idx];
+                                            return Padding(
+                                              padding: const EdgeInsets.only(top: 8.0),
+                                              child: Text(isWeekly ? DateFormat('E').format(d) : DateFormat('d').format(d)),
+                                            );
+                                          },
+                                          interval: 1,
+                                        ),
+                                      ),
+                                      leftTitles: AxisTitles(
+                                        sideTitles: SideTitles(
+                                          showTitles: true,
+                                          reservedSize: 48,
+                                          interval: (maxY / 5).ceilToDouble(),
+                                          getTitlesWidget: (value, meta) {
+                                            return Padding(
+                                              padding: const EdgeInsets.only(right: 4.0),
+                                              child: Text(_formatYAxis(value), style: TextStyle(fontSize: 13)),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                      rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                      topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                    ),
+                                    gridData: FlGridData(show: true, horizontalInterval: (maxY / 5).ceilToDouble()),
+                                    borderData: FlBorderData(
+                                      show: true,
+                                      border: Border(
+                                        left: BorderSide(color: Colors.grey.shade400, width: 1),
+                                        bottom: BorderSide(color: Colors.grey.shade400, width: 1),
+                                        right: BorderSide.none,
+                                        top: BorderSide.none,
+                                      ),
+                                    ),
+                                    lineBarsData: selectedMetrics.map((metric) {
+                                      final color = metricColors[metric]!;
+                                      final data = metricData[metric]!;
+                                      return LineChartBarData(
+                                        spots: List.generate(data.length, (i) => FlSpot(i.toDouble(), data[i])),
+                                        isCurved: true,
+                                        color: color,
+                                        barWidth: 3,
+                                        dotData: FlDotData(show: true),
+                                        belowBarData: BarAreaData(show: false),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              )
+                            : Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 32.0),
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.insights, size: 48, color: Colors.grey.shade300),
+                                    SizedBox(height: 12),
+                                    Text('No data for this period', style: TextStyle(color: Colors.grey.shade600, fontSize: 16)),
+                                  ],
                                 ),
                               ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
                   ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(null),
-                      child: Text('Cancel'),
+                ),
+              ),
+              SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: selectedMetrics.map((metric) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                    child: Row(
+                      children: [
+                        Container(width: 16, height: 4, decoration: BoxDecoration(color: metricColors[metric], borderRadius: BorderRadius.circular(2))),
+                        SizedBox(width: 6),
+                        Text(metric, style: TextStyle(color: metricColors[metric], fontWeight: FontWeight.w600)),
+                        Text(' (${metricUnits[metric]})', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                      ],
                     ),
-                    ElevatedButton(
-                      onPressed: () => Navigator.of(context).pop(4),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: Text('Continue'),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-        );
-        if (result == null) return null;
-        if (result == 2) {
-          step = 2;
-          continue;
-        }
-        // Only finish if user pressed Continue
-        break;
-      }
-    }
-    return selectedPrompt;
+                  )).toList(),
+                ),
+              ),
+              SizedBox(height: 12),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('Close', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade700)),
+              ),
+              SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

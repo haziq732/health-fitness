@@ -18,6 +18,7 @@ class _AIDietScreenState extends State<AIDietScreen> {
   String? generatedPlan;
   bool isLoading = false;
   String? errorMessage;
+  bool _planSaved = false;
 
   @override
   void initState() {
@@ -164,6 +165,7 @@ class _AIDietScreenState extends State<AIDietScreen> {
         return;
       }
       await _userService.addDietPlan(_currentUser.uid, dietData);
+      setState(() { _planSaved = true; });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Diet plan saved to your profile!'),
@@ -192,6 +194,7 @@ class _AIDietScreenState extends State<AIDietScreen> {
       isLoading = true;
       errorMessage = null;
       generatedPlan = null;
+      _planSaved = false;
     });
 
     try {
@@ -210,11 +213,108 @@ class _AIDietScreenState extends State<AIDietScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    Future<bool> _onWillPop() async {
+      if (generatedPlan != null && !_planSaved) {
+        final shouldLeave = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            titlePadding: EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 0),
+            contentPadding: EdgeInsets.fromLTRB(24, 16, 24, 0),
+            actionsPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            title: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 32),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Unsaved Plan',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 22,
+                      color: Colors.orange.shade800,
+                      fontFamily: 'Montserrat',
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'You have a generated diet plan that is not saved.',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                    fontFamily: 'Montserrat',
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Are you sure you want to leave? Your plan will be lost.',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: Colors.red.shade700,
+                    fontFamily: 'Montserrat',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.green.shade700,
+                  textStyle: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Montserrat'),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.arrow_back, color: Colors.green.shade700),
+                    SizedBox(width: 4),
+                    Text('Stay'),
+                  ],
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.of(context).pop(true),
+                icon: Icon(Icons.exit_to_app, color: Colors.white),
+                label: Text('Leave', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Montserrat')),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange.shade700,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  textStyle: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Montserrat'),
+                ),
+              ),
+            ],
+          ),
+        );
+        return shouldLeave ?? false;
+      }
+      return true;
+    }
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
       appBar: AppBar(
         title: Text("AI Diet Plan"),
         backgroundColor: Colors.green.shade700,
         foregroundColor: Colors.white,
+          leading: Builder(
+            builder: (context) => IconButton(
+              icon: Icon(Icons.arrow_back),
+              onPressed: () async {
+                if (await _onWillPop()) {
+                  Navigator.of(context).maybePop();
+                }
+              },
+            ),
+          ),
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -270,7 +370,7 @@ class _AIDietScreenState extends State<AIDietScreen> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             padding: EdgeInsets.symmetric(vertical: 16),
                           ),
-                          onPressed: isLoading ? null : _handleGeneratePlan,
+                            onPressed: isLoading ? null : _handleGeneratePlan,
                           icon: isLoading 
                             ? SizedBox(
                                 width: 20,
@@ -374,6 +474,7 @@ class _AIDietScreenState extends State<AIDietScreen> {
                 ),
               ],
             ],
+            ),
           ),
         ),
       ),

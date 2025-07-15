@@ -45,6 +45,7 @@ dependencies:
   image_picker: ^1.1.2
   firebase_storage: ^12.4.7
   lucide_icons: ^0.257.0
+  fl_chart: ^0.66.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -67,8 +68,15 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
   assets:
-  - assets/img1.png
-  - assets/img2.png
+  - assets/walking.jpg
+  - assets/running.jpg
+  - assets/cycling.jpg
+  - assets/swimming.jpg
+  - assets/log_food.jpg
+  - assets/log_workout.jpg
+  - assets/ai.jpg
+  - assets/saved_plan.jpg
+  - assets/workout.png
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
