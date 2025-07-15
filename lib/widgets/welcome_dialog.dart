@@ -5,7 +5,7 @@ import '../services/user_service.dart';
 class WelcomeDialog extends StatefulWidget {
   final User user;
 
-  const WelcomeDialog({Key? key, required this.user}) : super(key: key);
+  const WelcomeDialog({super.key, required this.user});
 
   @override
   _WelcomeDialogState createState() => _WelcomeDialogState();

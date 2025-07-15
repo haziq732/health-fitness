@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import '../services/user_service.dart';
 
 class WorkoutTrackerScreen extends StatefulWidget {
+  const WorkoutTrackerScreen({super.key});
+
   @override
   _WorkoutTrackerScreenState createState() => _WorkoutTrackerScreenState();
 }

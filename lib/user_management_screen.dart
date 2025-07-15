@@ -5,7 +5,7 @@ import 'services/admin_service.dart';
 import 'plan_detail_screen.dart';
 
 class UserManagementScreen extends StatefulWidget {
-  const UserManagementScreen({Key? key}) : super(key: key);
+  const UserManagementScreen({super.key});
   @override
   UserManagementScreenState createState() => UserManagementScreenState();
 }
@@ -192,7 +192,7 @@ class UserManagementScreenState extends State<UserManagementScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('${userDetails['name']} - Diet Plans'),
-        content: Container(
+        content: SizedBox(
           width: double.maxFinite,
           height: 400,
           child: ListView.builder(

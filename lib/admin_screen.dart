@@ -4,14 +4,18 @@ import 'package:intl/intl.dart';
 import 'services/admin_service.dart';
 import 'plan_detail_screen.dart';
 import 'user_management_screen.dart';
+import 'services/auth_service.dart';
 
 class AdminScreen extends StatefulWidget {
+  const AdminScreen({super.key});
+
   @override
   _AdminScreenState createState() => _AdminScreenState();
 }
 
 class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStateMixin {
   final AdminService _adminService = AdminService();
+  final AuthService _authService = AuthService();
   bool _isLoading = true;
   List<Map<String, dynamic>> _usersWithPlans = [];
   Map<String, dynamic> _statistics = {};
@@ -132,6 +136,16 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             },
             tooltip: 'Refresh',
           ),
+          IconButton(
+            icon: Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: () async {
+              await _authService.signOut();
+              if (mounted) {
+                Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+              }
+            },
+          ),
         ],
       ),
       body: TabBarView(
@@ -148,29 +162,29 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
 
   Widget _buildDietPlansTab() {
     return _isLoading
-        ? Center(child: CircularProgressIndicator())
-        : Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.red.shade50, Colors.red.shade100],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Column(
-              children: [
-                // Statistics Cards
-                _buildStatisticsCards(),
-                
-                // Users with Diet Plans
-                Expanded(
-                  child: _usersWithPlans.isEmpty
-                      ? _buildEmptyState()
-                      : _buildUsersList(),
+          ? Center(child: CircularProgressIndicator())
+          : Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.red.shade50, Colors.red.shade100],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-              ],
+              ),
+              child: Column(
+                children: [
+                  // Statistics Cards
+                  _buildStatisticsCards(),
+                  
+                  // Users with Diet Plans
+                  Expanded(
+                    child: _usersWithPlans.isEmpty
+                        ? _buildEmptyState()
+                        : _buildUsersList(),
+                  ),
+                ],
             ),
-          );
+    );
   }
 
   Widget _buildStatisticsCards() {
@@ -347,7 +361,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                     ],
                   ),
                 );
-              }).toList(),
+              }),
             ],
           ),
         );

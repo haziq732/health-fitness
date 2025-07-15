@@ -5,6 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'services/user_service.dart';
 
 class AIDietScreen extends StatefulWidget {
+  final String? initialPrompt;
+  const AIDietScreen({super.key, this.initialPrompt});
   @override
   _AIDietScreenState createState() => _AIDietScreenState();
 }
@@ -17,6 +19,126 @@ class _AIDietScreenState extends State<AIDietScreen> {
   bool isLoading = false;
   String? errorMessage;
 
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialPrompt != null && widget.initialPrompt!.isNotEmpty) {
+      promptController.text = widget.initialPrompt!;
+    }
+  }
+
+  // New: Show dialog to ask user questions
+  Future<void> _showPromptDialog() async {
+    final ageController = TextEditingController();
+    String gender = 'Male';
+    String activity = 'Low';
+    String diet = 'No preference';
+    String goal = 'Lose weight';
+
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Tell us about yourself'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: ageController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(labelText: 'Age'),
+                ),
+                SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: gender,
+                  items: ['Male', 'Female', 'Other']
+                      .map((g) => DropdownMenuItem(value: g, child: Text(g)))
+                      .toList(),
+                  onChanged: (val) => gender = val ?? 'Male',
+                  decoration: InputDecoration(labelText: 'Gender'),
+                ),
+                SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: activity,
+                  items: ['Low', 'Moderate', 'High']
+                      .map((a) => DropdownMenuItem(value: a, child: Text(a)))
+                      .toList(),
+                  onChanged: (val) => activity = val ?? 'Low',
+                  decoration: InputDecoration(labelText: 'Activity Level'),
+                ),
+                SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: diet,
+                  items: ['No preference', 'Vegetarian', 'Vegan', 'Halal', 'Kosher']
+                      .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+                      .toList(),
+                  onChanged: (val) => diet = val ?? 'No preference',
+                  decoration: InputDecoration(labelText: 'Dietary Preference'),
+                ),
+                SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: goal,
+                  items: ['Lose weight', 'Maintain weight', 'Gain muscle', 'Other']
+                      .map((g) => DropdownMenuItem(value: g, child: Text(g)))
+                      .toList(),
+                  onChanged: (val) => goal = val ?? 'Lose weight',
+                  decoration: InputDecoration(labelText: 'Goal'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop({
+                  'age': ageController.text,
+                  'gender': gender,
+                  'activity': activity,
+                  'diet': diet,
+                  'goal': goal,
+                });
+              },
+              child: Text('Continue'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result != null) {
+      // Generate summary sentence
+      final age = result['age']?.isNotEmpty == true ? result['age'] : 'unknown age';
+      final gender = result['gender'] ?? 'unspecified';
+      final activity = result['activity'] ?? 'unspecified';
+      final diet = result['diet'] ?? 'no preference';
+      final goal = result['goal'] ?? 'unspecified';
+      final summary =
+          'I am a $age-year-old $gender, my activity level is $activity, my dietary preference is $diet, and my goal is to $goal.';
+      setState(() {
+        promptController.text = summary;
+      });
+    }
+  }
+
+  // Modified: Only show dialog if prompt is empty
+  Future<void> _handleGeneratePlan() async {
+    if (promptController.text.trim().isEmpty) {
+      await _showPromptDialog();
+      if (promptController.text.trim().isEmpty) {
+        setState(() {
+          errorMessage = 'Please enter your fitness goal';
+        });
+        return;
+      }
+    }
+    await _generateDietPlan();
+  }
+
   Future<void> _savePlan() async {
     if (generatedPlan == null || _currentUser == null) return;
 
@@ -27,8 +149,21 @@ class _AIDietScreenState extends State<AIDietScreen> {
     };
 
     try {
-      await _userService.addDietPlan(_currentUser!.uid, dietData);
-      
+      // Check for duplicate plan
+      final existingPlans = await _userService.getDietPlans(_currentUser.uid);
+      final alreadyExists = existingPlans.any((plan) =>
+        (plan['plan'] as String?)?.trim() == generatedPlan!.trim()
+      );
+      if (alreadyExists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('This plan is already saved.'),
+            backgroundColor: Colors.orange.shade600,
+          ),
+        );
+        return;
+      }
+      await _userService.addDietPlan(_currentUser.uid, dietData);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Diet plan saved to your profile!'),
@@ -135,7 +270,7 @@ class _AIDietScreenState extends State<AIDietScreen> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             padding: EdgeInsets.symmetric(vertical: 16),
                           ),
-                          onPressed: isLoading ? null : _generateDietPlan,
+                          onPressed: isLoading ? null : _handleGeneratePlan,
                           icon: isLoading 
                             ? SizedBox(
                                 width: 20,

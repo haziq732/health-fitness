@@ -12,7 +12,7 @@ import '../widgets/welcome_dialog.dart';
 import '../admin_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -28,7 +28,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   bool _showPassword = false;
   bool _rememberMe = false;
   bool _isEmailValid = true;
-  bool _isFormSubmitted = false;
+  final bool _isFormSubmitted = false;
   bool _isEmailFocused = false;
   bool _isPasswordFocused = false;
   bool _isLoading = false;
@@ -37,7 +37,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   late AnimationController _formAnimationController;
   late Animation<double> _formAnimation;
   
-  List<Particle> _particles = [];
+  final List<Particle> _particles = [];
   Timer? _particleTimer;
 
   @override

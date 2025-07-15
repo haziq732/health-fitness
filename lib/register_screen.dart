@@ -5,7 +5,7 @@ import 'services/auth_service.dart';
 import 'screens/login_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({Key? key}) : super(key: key);
+  const RegisterScreen({super.key});
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -19,7 +19,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   final _authService = AuthService();
   bool _isLoading = false;
-  bool _newsletter = false;
+  final bool _newsletter = false;
 
   @override
   void dispose() {

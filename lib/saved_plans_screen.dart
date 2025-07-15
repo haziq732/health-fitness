@@ -4,6 +4,8 @@ import 'services/user_service.dart';
 import 'plan_detail_screen.dart';
 
 class SavedPlansScreen extends StatefulWidget {
+  const SavedPlansScreen({super.key});
+
   @override
   _SavedPlansScreenState createState() => _SavedPlansScreenState();
 }
@@ -21,7 +23,7 @@ class _SavedPlansScreenState extends State<SavedPlansScreen> {
 
   Future<List<Map<String, dynamic>>> _loadSavedPlans() async {
     if (_currentUser == null) return [];
-    return _userService.getDietPlans(_currentUser!.uid);
+    return _userService.getDietPlans(_currentUser.uid);
   }
 
   Future<void> _deletePlan(int index) async {
@@ -32,7 +34,7 @@ class _SavedPlansScreenState extends State<SavedPlansScreen> {
     final originalIndex = plans.length - 1 - index;
 
     try {
-      await _userService.deleteDietPlan(_currentUser!.uid, originalIndex);
+      await _userService.deleteDietPlan(_currentUser.uid, originalIndex);
       setState(() {
         _savedPlansFuture = _loadSavedPlans();
       });

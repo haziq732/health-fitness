@@ -7,7 +7,7 @@ import '../services/user_service.dart';
 class EditProfileDialog extends StatefulWidget {
   final Map<String, dynamic> profileData;
 
-  const EditProfileDialog({Key? key, required this.profileData}) : super(key: key);
+  const EditProfileDialog({super.key, required this.profileData});
 
   @override
   _EditProfileDialogState createState() => _EditProfileDialogState();

@@ -6,6 +6,8 @@ import 'services/user_service.dart';
 import 'services/nutrition_service.dart';
 
 class FoodLogScreen extends StatefulWidget {
+  const FoodLogScreen({super.key});
+
   @override
   _FoodLogScreenState createState() => _FoodLogScreenState();
 }

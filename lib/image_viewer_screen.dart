@@ -5,7 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'services/user_service.dart';
 
 class ImageViewerScreen extends StatefulWidget {
-  const ImageViewerScreen({Key? key}) : super(key: key);
+  const ImageViewerScreen({super.key});
 
   @override
   _ImageViewerScreenState createState() => _ImageViewerScreenState();
@@ -91,8 +91,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _loadImage,
-        child: const Icon(Icons.refresh),
         tooltip: 'Refresh Image',
+        child: const Icon(Icons.refresh),
       ),
     );
   }
